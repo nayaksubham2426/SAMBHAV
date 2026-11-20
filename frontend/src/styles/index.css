@@ -1,0 +1,356 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+   SAMBHAV - GLOBAL DESIGN TOKENS & DYNAMIC THEME SYSTEM
+   ========================================================================= */
+
+@layer base {
+  /* Default Light Theme */
+  :root {
+    --color-bg: #f7fafc;
+    --color-text: #181c1e;
+    --color-primary: #fe9832;
+    --color-primary-hover: #e8872b;
+    --color-border: #e0e3e5;
+    --color-focus-ring: #fe9832;
+    --color-card-bg: #ffffff;
+    --color-card-surface: #f1f4f6;
+    --color-sidebar-bg: #f1f4f6;
+    --color-accent: #8f4e00;
+  }
+
+  /* Deep Sleek Dark Theme (Reference from Translate & Console Design) */
+  .dark {
+    --color-bg: #030813;
+    --color-text: #f7fafc;
+    --color-primary: #fe9832;
+    --color-primary-hover: #ffb77a;
+    --color-border: #2d3133;
+    --color-focus-ring: #fe9832;
+    --color-card-bg: #1a202c;
+    --color-card-surface: #181c1e;
+    --color-sidebar-bg: #0d121d;
+    --color-accent: #ffb77a;
+  }
+
+  /* Font Scaling Options */
+  html {
+    font-size: 16px;
+    transition: font-size 0.15s ease-out;
+  }
+  
+  html.text-small {
+    font-size: 14px;
+  }
+  
+  html.text-large {
+    font-size: 18px;
+  }
+  
+  html.text-xlarge {
+    font-size: 20px;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    min-height: 100vh;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* Accessible visible focus states */
+  *:focus-visible {
+    outline: 3px solid #fe9832 !important;
+    outline-offset: 2px !important;
+    border-radius: 4px;
+  }
+
+  /* Respect reduced motion system preference */
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 4px;
+}
+
+/* =========================================================================
+   LUXURY LANDING PAGE UTILITIES & FONTS
+   ========================================================================= */
+.font-serif-display {
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+}
+
+.luxury-card {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(180, 83, 9, 0.12);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+.dark .luxury-card {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
+}
+
+.luxury-card-dark {
+  background: #020617;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+}
+
+.gold-shimmer-text {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 50%, #92400e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.dark .gold-shimmer-text {
+  background: linear-gradient(135deg, #fde68a 0%, #f59e0b 50%, #d97706 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* =========================================================================
+   SAMBHAV PASTEL THEME & HERO ANIMATION UTILITIES
+   ========================================================================= */
+.font-headline {
+  font-family: 'Atkinson Hyperlegible Next', 'Inter', sans-serif;
+}
+
+.font-body-lg {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-body-md {
+  font-family: 'Inter', sans-serif;
+}
+
+.hero-bg {
+  background: radial-gradient(ellipse at 50% 0%, rgba(254, 152, 50, 0.08) 0%, rgba(241, 244, 246, 0.6) 50%, #f7fafc 100%);
+}
+
+.dark .hero-bg {
+  background: radial-gradient(ellipse at 50% -20%, rgba(254, 152, 50, 0.12) 0%, rgba(13, 18, 29, 0.95) 60%, #030813 100%);
+}
+
+.page-bg {
+  background: linear-gradient(180deg, #f7fafc 0%, #f1f4f6 25%, #ffffff 75%, #f7fafc 100%);
+  min-height: 100vh;
+}
+
+.dark .page-bg {
+  background: linear-gradient(180deg, #030813 0%, #0d121d 35%, #111827 75%, #030813 100%);
+}
+
+.card-shadow {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04);
+}
+
+.soft-shadow {
+  box-shadow: 0 20px 40px -10px rgba(254, 152, 50, 0.08);
+}
+
+/* Fluid Hardware-Accelerated Animations */
+.fade-up {
+  opacity: 1;
+  transform: none;
+}
+
+.pulse-btn {
+  will-change: box-shadow;
+  animation: pulseButton 2.5s infinite;
+}
+
+@keyframes pulseButton {
+  0% { box-shadow: 0 0 0 0 rgba(254, 152, 50, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(254, 152, 50, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(254, 152, 50, 0); }
+}
+
+/* Flow animation for How It Works */
+.flow-arrow {
+  position: relative;
+  overflow: hidden;
+}
+
+.flow-arrow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(254, 152, 50, 0.2), transparent);
+  animation: flow 3s infinite;
+}
+
+@keyframes flow {
+  0% { left: -100%; }
+  100% { left: 200%; }
+}
+
+/* =========================================================================
+   UX4G GOVERNMENT ACCESSIBILITY SUITE TOKENS & FILTERS
+   ========================================================================= */
+
+/* 1. Color Filters */
+html.a11y-monochrome {
+  filter: grayscale(100%) !important;
+}
+
+html.a11y-high-saturate {
+  filter: saturate(200%) contrast(120%) !important;
+}
+
+html.a11y-low-saturate {
+  filter: saturate(40%) contrast(90%) !important;
+}
+
+html.a11y-invert {
+  filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+html.a11y-invert img,
+html.a11y-invert video,
+html.a11y-invert canvas,
+html.a11y-invert [style*="background-image"] {
+  filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+/* 2. Text Scaling */
+html.text-scale-0 {
+  font-size: 16px !important;
+}
+html.text-scale-1 {
+  font-size: 18px !important;
+}
+html.text-scale-2 {
+  font-size: 20px !important;
+}
+html.text-scale-3 {
+  font-size: 22px !important;
+}
+
+/* 3. Content Adjustments */
+html.a11y-line-height p,
+html.a11y-line-height span,
+html.a11y-line-height h1,
+html.a11y-line-height h2,
+html.a11y-line-height h3,
+html.a11y-line-height h4,
+html.a11y-line-height h5,
+html.a11y-line-height h6,
+html.a11y-line-height li,
+html.a11y-line-height button,
+html.a11y-line-height a {
+  line-height: 2 !important;
+}
+
+html.a11y-text-spacing p,
+html.a11y-text-spacing span,
+html.a11y-text-spacing h1,
+html.a11y-text-spacing h2,
+html.a11y-text-spacing h3,
+html.a11y-text-spacing h4,
+html.a11y-text-spacing h5,
+html.a11y-text-spacing h6,
+html.a11y-text-spacing li,
+html.a11y-text-spacing button,
+html.a11y-text-spacing a {
+  letter-spacing: 0.12em !important;
+  word-spacing: 0.22em !important;
+}
+
+/* 4. Highlight Interactive Links */
+html.a11y-highlight-links a,
+html.a11y-highlight-links button,
+html.a11y-highlight-links [role="button"],
+html.a11y-highlight-links input[type="submit"],
+html.a11y-highlight-links input[type="button"] {
+  outline: 3px solid #facc15 !important;
+  outline-offset: 3px !important;
+  background-color: rgba(250, 204, 21, 0.22) !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 2px !important;
+  text-underline-offset: 3px !important;
+}
+
+/* 5. Dyslexia Friendly Typography */
+html.a11y-dyslexia,
+html.a11y-dyslexia body,
+html.a11y-dyslexia * {
+  font-family: 'OpenDyslexic', 'Comic Sans MS', 'Trebuchet MS', sans-serif !important;
+  letter-spacing: 0.04em !important;
+}
+
+/* 6. Hide Images for Distraction-Free Reading */
+html.a11y-hide-images img,
+html.a11y-hide-images video,
+html.a11y-hide-images canvas {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* 7. High-Visibility Large Cursor */
+html.a11y-big-cursor,
+html.a11y-big-cursor * {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44"><polygon points="0,0 0,36 10,26 18,44 26,40 18,22 32,22" fill="%23fe9832" stroke="%23030813" stroke-width="2.5"/><polygon points="2,3 2,32 10,24 17,40 22,37 15,22 28,22" fill="%23ffffff"/></svg>'), auto !important;
+}
+
+/* 8. Screen Reader Active Mode Feedback */
+html.a11y-screen-reader-active p:hover,
+html.a11y-screen-reader-active h1:hover,
+html.a11y-screen-reader-active h2:hover,
+html.a11y-screen-reader-active h3:hover,
+html.a11y-screen-reader-active h4:hover,
+html.a11y-screen-reader-active h5:hover,
+html.a11y-screen-reader-active h6:hover,
+html.a11y-screen-reader-active li:hover,
+html.a11y-screen-reader-active button:hover,
+html.a11y-screen-reader-active a:hover {
+  cursor: help !important;
+  background-color: rgba(254, 152, 50, 0.15) !important;
+  outline: 2px dashed #fe9832 !important;
+}
+
+/* 9. Disable App Animations & Transitions */
+html.app-disable-animations *,
+html.app-disable-animations *::before,
+html.app-disable-animations *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+
+
+

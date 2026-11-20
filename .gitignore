@@ -1,0 +1,60 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+# Node / JS
+node_modules/
+dist/
+
+# Local Environment Variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Python / ML artifacts
+__pycache__/
+*.pyc
+dataset/
+ml_service/old dataset/
+*.task
+ml_service/processed_data*/
+tuner_results/
+
+# Temporary / Local Reference Folders
+WEBRTC2_Sambhav_WebRTC_Connected/
+new WEBRTC/
+AvatarNew/
+.qodo/
+

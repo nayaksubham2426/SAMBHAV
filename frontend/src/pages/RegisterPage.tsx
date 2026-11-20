@@ -1,0 +1,606 @@
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { validatePassword } from '../utils/passwordValidator';
+
+export const RegisterPage: React.FC = () => {
+  const { registerUser } = useAuth();
+  const navigate = useNavigate();
+
+  // Multi-step: 1 = Account Info, 2 = Account Type, 3 = Accessibility Needs
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // Form State
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [accountType, setAccountType] = useState<'COMMON_USER' | 'ACCESSIBILITY_USER'>('COMMON_USER');
+  const [selectedNeeds, setSelectedNeeds] = useState<string[]>([]);
+
+  // Password validation
+  const passwordValidation = validatePassword(password);
+
+  // Preferences Defaults
+  const [preferredLanguage, _setPreferredLanguage] = useState('English');
+  const preferredSignLanguage = 'ISL';
+  const [communicationPreference, setCommunicationPreference] = useState('text');
+
+  // UI state
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 3-Image High-Resolution Animation & Hover Sequencer
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
+  const gestureImages = [
+    {
+      id: 0,
+      src: '/assets/isl_gesture_hello.jpg',
+      title: 'Hello',
+      description: 'Greeting & Welcome Sign in Indian Sign Language',
+    },
+    {
+      id: 1,
+      src: '/assets/isl_gesture_thankyou.jpg',
+      title: 'Thank you',
+      description: 'Gratitude & Appreciation Sign in Indian Sign Language',
+    },
+    {
+      id: 2,
+      src: '/assets/isl_gesture_sorry.jpg',
+      title: 'Sorry',
+      description: 'Apology & Regret Sign in Indian Sign Language',
+    },
+  ];
+
+  useEffect(() => {
+    if (isHovered) return;
+    const timer = setInterval(() => {
+      setActiveImageIndex((prev) => (prev + 1) % gestureImages.length);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, [isHovered, gestureImages.length]);
+
+  const handleNextStep = () => {
+    if (step === 1) {
+      if (!name.trim() || !email.trim() || !password) {
+        setError('Please fill in all required fields.');
+        return;
+      }
+      if (!passwordValidation.isValid) {
+        setError('Password must be at least 8 characters long (can contain letters, digits, or special characters).');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
+      setError(null);
+      setStep(2);
+    } else if (step === 2) {
+      if (accountType === 'COMMON_USER') {
+        handleRegister();
+      } else {
+        setError(null);
+        setStep(3);
+      }
+    }
+  };
+
+  const handlePrevStep = () => {
+    setError(null);
+    setStep((prev) => (prev - 1) as 1 | 2);
+  };
+
+  const handleNeedToggle = (need: string) => {
+    if (need === 'DEAF' && selectedNeeds.includes('HARD_OF_HEARING')) {
+      setError('Cannot select both Deaf and Hard of Hearing simultaneously.');
+      return;
+    }
+    if (need === 'HARD_OF_HEARING' && selectedNeeds.includes('DEAF')) {
+      setError('Cannot select both Deaf and Hard of Hearing simultaneously.');
+      return;
+    }
+    setError(null);
+    if (selectedNeeds.includes(need)) {
+      setSelectedNeeds(selectedNeeds.filter((n) => n !== need));
+    } else {
+      setSelectedNeeds([...selectedNeeds, need]);
+    }
+  };
+
+  const handleRegister = async () => {
+    setLoading(true);
+    setError(null);
+    const payload = {
+      name: name.trim(),
+      email: email.trim(),
+      password,
+      phone: phone.trim() || null,
+      accountType,
+      accessibilityNeeds: accountType === 'ACCESSIBILITY_USER' ? selectedNeeds : [],
+      preferredLanguage: accountType === 'ACCESSIBILITY_USER' ? preferredLanguage : null,
+      preferredSignLanguage: accountType === 'ACCESSIBILITY_USER' ? preferredSignLanguage : null,
+      textSizePreference: 'normal',
+      highContrastPreference: false,
+      communicationPreference: accountType === 'ACCESSIBILITY_USER' ? communicationPreference : null,
+    };
+    try {
+      await registerUser(payload);
+      navigate('/login', { state: { registrationSuccess: true } });
+    } catch (err: any) {
+      setError(err?.message || 'Registration failed. The email may already be registered.');
+      setLoading(false);
+    }
+  };
+
+  const totalSteps = accountType === 'ACCESSIBILITY_USER' ? 3 : 2;
+
+  return (
+    <div className="bg-[#f7fafc] dark:bg-[#030813] min-h-screen flex text-[#181c1e] dark:text-[#f7fafc] font-['Inter',sans-serif]">
+      {/* Split Screen Container */}
+      <div className="flex w-full min-h-screen">
+        
+        {/* Left Side: Visual Storytelling & ISL Animation */}
+        <div className="hidden lg:flex w-1/2 flex-col justify-between p-12 relative overflow-hidden bg-[#1a202c]">
+          {/* Decorative Glow */}
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-[#fe9832]/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-[#8dfc75]/10 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col items-start gap-3">
+            <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity focus:outline-none" aria-label="SAMBHAV Home">
+              <img
+                alt="SAMBHAV Logo"
+                className="h-11 w-11 object-contain rounded-full shadow-md"
+                src="/logo.png"
+              />
+              <span className="text-2xl font-bold tracking-tight text-white">
+                SAM<span className="text-[#fe9832] font-extrabold">BHAV</span>
+              </span>
+            </Link>
+
+            <h1 className="text-[38px] xl:text-[44px] font-extrabold leading-[48px] tracking-tight text-white mt-4">
+              Join Our Community.
+            </h1>
+            <p className="text-base leading-relaxed text-[#c1c6d7] max-w-md">
+              Create your account to start communicating effortlessly with real-time Indian Sign Language interpretation, voice, and text.
+            </p>
+          </div>
+
+          {/* High-Resolution ISL Gesture Interactive Frame */}
+          <div
+            className="relative z-10 w-full max-w-md mx-auto my-auto py-2"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+          >
+            <div className="aspect-[16/10] bg-[#111318] rounded-2xl shadow-2xl overflow-hidden relative border border-white/10 group">
+              {gestureImages.map((img, idx) => (
+                <div
+                  key={img.id}
+                  className={`absolute inset-0 transition-all duration-700 ease-in-out ${
+                    idx === activeImageIndex
+                      ? 'opacity-100 scale-100 z-10'
+                      : 'opacity-0 scale-105 pointer-events-none z-0'
+                  }`}
+                >
+                  <img
+                    className="w-full h-full object-cover object-top"
+                    alt={img.title}
+                    src={img.src}
+                  />
+                  <div className="absolute bottom-3 left-3 px-3 py-1.5 bg-black/70 backdrop-blur-md rounded-full text-xs font-bold text-white border border-white/10 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#fe9832] animate-ping" />
+                    <span>Sign: <strong className="text-[#fe9832]">{img.title}</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Interactive Hover / Click Gesture Chips */}
+            <div className="grid grid-cols-3 gap-2 mt-3.5">
+              {gestureImages.map((img, idx) => {
+                const isActive = idx === activeImageIndex;
+                return (
+                  <button
+                    key={img.id}
+                    type="button"
+                    onMouseEnter={() => {
+                      setActiveImageIndex(idx);
+                      setIsHovered(true);
+                    }}
+                    onClick={() => setActiveImageIndex(idx)}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                      isActive
+                        ? 'bg-[#fe9832] text-[#683700] border-[#fe9832] shadow-md scale-105'
+                        : 'bg-white/5 hover:bg-white/15 text-[#c1c6d7] hover:text-white border-white/10'
+                    }`}
+                  >
+                    <span>{img.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="relative z-10 text-xs text-[#828796] flex items-center justify-between border-t border-white/10 pt-4">
+            <span>SAMBHAV ISL AI Platform</span>
+            <span>Free & Open Access</span>
+          </div>
+        </div>
+
+        {/* Right Side: Registration Form */}
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 md:p-12 bg-[#f7fafc] dark:bg-[#030813] relative overflow-y-auto">
+          
+          <div className="w-full max-w-lg bg-white dark:bg-[#1a202c] p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200 dark:border-[#2d3133]">
+            
+            {/* Header & Step Indicator */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-[#fe9832]">
+                  Step {step} of {totalSteps}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-[#828796]">
+                  {step === 1 ? 'Personal Details' : step === 2 ? 'Account Type' : 'Accessibility Preferences'}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2 mb-4">
+                <div className={`flex-1 h-1.5 rounded-full transition-all ${step >= 1 ? 'bg-gradient-to-r from-sky-500 to-indigo-600 dark:bg-none dark:bg-[#fe9832]' : 'bg-slate-200 dark:bg-[#2d3133]'}`} />
+                <div className={`flex-1 h-1.5 rounded-full transition-all ${step >= 2 ? 'bg-gradient-to-r from-indigo-600 to-purple-600 dark:bg-none dark:bg-[#fe9832]' : 'bg-slate-200 dark:bg-[#2d3133]'}`} />
+                {accountType === 'ACCESSIBILITY_USER' && (
+                  <div className={`flex-1 h-1.5 rounded-full transition-all ${step >= 3 ? 'bg-gradient-to-r from-purple-600 to-pink-600 dark:bg-none dark:bg-[#fe9832]' : 'bg-slate-200 dark:bg-[#2d3133]'}`} />
+                )}
+              </div>
+
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Create an Account</h2>
+              <p className="text-xs text-gray-500 dark:text-[#828796] mt-1">
+                {step === 1 && 'Enter your basic information to get started.'}
+                {step === 2 && 'Select how you would like to use SAMBHAV.'}
+                {step === 3 && 'Tailor your assistive preferences for optimal communication.'}
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div
+                className="p-3.5 mb-5 rounded-xl bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 text-rose-700 dark:text-red-300 text-xs font-semibold flex items-center gap-2"
+                role="alert"
+              >
+                <span className="material-symbols-outlined text-[18px]">error</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* STEP 1: Basic Information                                 */}
+            {/* ========================================================= */}
+            {step === 1 && (
+              <div className="flex flex-col gap-4 text-xs">
+                {/* Full Name */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-bold text-gray-900 dark:text-white" htmlFor="reg-name">
+                    Full Name <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#828796] text-[18px]">
+                      person
+                    </span>
+                    <input
+                      id="reg-name"
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Priyanshu Sharma"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832] outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Email Address */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-bold text-gray-900 dark:text-white" htmlFor="reg-email">
+                    Email Address <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#828796] text-[18px]">
+                      mail
+                    </span>
+                    <input
+                      id="reg-email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832] outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Phone (Optional) */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-bold text-gray-900 dark:text-white" htmlFor="reg-phone">
+                    Phone Number <span className="text-xs font-normal text-gray-500 dark:text-[#828796]">(Optional)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#828796] text-[18px]">
+                      call
+                    </span>
+                    <input
+                      id="reg-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832] outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Password Fields Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-bold text-gray-900 dark:text-white" htmlFor="reg-password">
+                      Password <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="reg-password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Min 8 characters"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832] outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-bold text-gray-900 dark:text-white" htmlFor="reg-confirm">
+                      Confirm Password <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="reg-confirm"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter password"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832] outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real-time Password Strength Meter */}
+                {password && (
+                  <div className="p-3 bg-slate-50 dark:bg-[#0c121e] border border-slate-200 dark:border-[#243044] rounded-xl flex flex-col gap-2 animate-fadeIn text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">Password Requirement:</span>
+                      <span className={`text-[11px] font-black ${passwordValidation.strengthColor.split(' ')[1]}`}>
+                        {passwordValidation.hasMinLength ? 'Ready (Valid)' : 'Too Short'}
+                      </span>
+                    </div>
+
+                    {/* 5-Segment Strength Bar */}
+                    <div className="grid grid-cols-5 gap-1 h-1.5">
+                      {[1, 2, 3, 4, 5].map((seg) => (
+                        <div
+                          key={seg}
+                          className={`rounded-full transition-all duration-300 ${
+                            seg <= passwordValidation.score
+                              ? passwordValidation.strengthColor.split(' ')[0]
+                              : 'bg-gray-200 dark:bg-gray-800'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Requirement Checklist */}
+                    <div className="flex flex-col gap-1 text-[10px] text-gray-500 dark:text-gray-400 pt-1">
+                      <span className={passwordValidation.hasMinLength ? 'text-emerald-600 dark:text-emerald-500 font-bold' : 'text-rose-500 font-semibold'}>
+                        {passwordValidation.hasMinLength ? '✓' : '•'} At least 8 characters (letters, numbers, or special characters)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Show password checkbox */}
+                <div className="flex items-center gap-2">
+                  <input
+                    id="show-pass"
+                    type="checkbox"
+                    checked={showPassword}
+                    onChange={(e) => setShowPassword(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 dark:text-[#fe9832] focus:ring-indigo-500 dark:focus:ring-[#fe9832] cursor-pointer"
+                  />
+                  <label htmlFor="show-pass" className="text-xs text-gray-600 dark:text-[#c1c6d7] cursor-pointer select-none">
+                    Show passwords
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleNextStep}
+                  className="mt-2 w-full py-3 bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 dark:bg-none dark:bg-[#fe9832] text-white dark:text-[#683700] hover:opacity-95 font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-500/20 dark:shadow-none flex items-center justify-center gap-2"
+                >
+                  <span>Continue to Account Type</span>
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </button>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* STEP 2: Account Type Selection                            */}
+            {/* ========================================================= */}
+            {step === 2 && (
+              <div className="flex flex-col gap-4 text-xs">
+                <div className="grid grid-cols-1 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAccountType('COMMON_USER')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all flex items-start gap-3.5 ${
+                      accountType === 'COMMON_USER'
+                        ? 'border-indigo-500 bg-indigo-50/70 dark:bg-[#fe9832]/15 dark:border-[#fe9832]'
+                        : 'border-slate-200 dark:border-[#2d3133] bg-slate-50/50 dark:bg-[#030813] hover:border-indigo-300 dark:hover:border-[#fe9832]'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-[#fe9832]/20 text-indigo-600 dark:text-[#fe9832] flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-[22px]">person</span>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-gray-900 dark:text-white">Common User</h3>
+                      <p className="text-xs text-gray-500 dark:text-[#c1c6d7] mt-0.5 leading-relaxed">
+                        Standard workspace for vocal/text communication sessions and real-time remote calls.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAccountType('ACCESSIBILITY_USER')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all flex items-start gap-3.5 ${
+                      accountType === 'ACCESSIBILITY_USER'
+                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-[#fe9832]/15 dark:border-[#fe9832]'
+                        : 'border-slate-200 dark:border-[#2d3133] bg-slate-50/50 dark:bg-[#030813] hover:border-emerald-300 dark:hover:border-[#fe9832]'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-[#8dfc75]/20 text-emerald-600 dark:text-[#8dfc75] flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-[22px]">accessibility_new</span>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-gray-900 dark:text-white">Accessibility User</h3>
+                      <p className="text-xs text-gray-500 dark:text-[#c1c6d7] mt-0.5 leading-relaxed">
+                        Tailored for Deaf & Hard-of-Hearing individuals with automated 3D ISL avatar rendering and sign learning.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="flex gap-3 mt-2">
+                  <button
+                    type="button"
+                    onClick={handlePrevStep}
+                    className="w-1/3 py-3 border border-slate-200 dark:border-[#2d3133] text-gray-700 dark:text-white font-bold text-xs rounded-xl hover:bg-slate-100 dark:hover:bg-[#2d3133] transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextStep}
+                    disabled={loading}
+                    className="flex-1 py-3 bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 dark:bg-none dark:bg-[#fe9832] text-white dark:text-[#683700] hover:opacity-95 font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-500/20 dark:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {loading ? (
+                      <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                    ) : (
+                      <>
+                        <span>{accountType === 'COMMON_USER' ? 'Complete Registration' : 'Continue to Preferences'}</span>
+                        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* STEP 3: Accessibility Needs (Only for Accessibility User) */}
+            {/* ========================================================= */}
+            {step === 3 && (
+              <div className="flex flex-col gap-4 text-xs">
+                <p className="text-xs text-gray-600 dark:text-[#c1c6d7]">
+                  Select the accessibility features you would like enabled by default:
+                </p>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {[
+                    { key: 'DEAF', label: 'Deaf' },
+                    { key: 'HARD_OF_HEARING', label: 'Hard of Hearing' },
+                    { key: 'NON_SPEAKING', label: 'Non-speaking' },
+                    { key: 'OTHER', label: 'Other Needs' }
+                  ].map((item) => (
+                    <label 
+                      key={item.key} 
+                      className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                        selectedNeeds.includes(item.key) 
+                          ? 'border-indigo-500 bg-indigo-50/60 text-indigo-950 dark:border-[#fe9832] dark:bg-[#fe9832]/10 dark:text-white' 
+                          : 'border-slate-200 dark:border-[#2d3133] bg-slate-50/50 dark:bg-[#030813] text-gray-700 dark:text-[#c1c6d7]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedNeeds.includes(item.key)}
+                        onChange={() => handleNeedToggle(item.key)}
+                        className="w-4 h-4 rounded text-indigo-600 dark:text-[#fe9832] focus:ring-indigo-500 dark:focus:ring-[#fe9832] cursor-pointer"
+                      />
+                      <span className="text-xs font-bold">{item.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-1 mt-1">
+                  <label className="font-bold text-gray-900 dark:text-white">Primary Input Mode</label>
+                  <select
+                    value={communicationPreference}
+                    onChange={(e) => setCommunicationPreference(e.target.value)}
+                    className="px-3 py-2 bg-slate-50 dark:bg-[#030813] border border-slate-200 dark:border-[#2d3133] rounded-xl text-gray-900 dark:text-white font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-0 dark:focus:border-[#fe9832]"
+                  >
+                    <option value="text">Text Input</option>
+                    <option value="sign">Indian Sign Language (ISL) Gestures &amp; Avatar</option>
+                    <option value="speech">Speech Audio</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 mt-2">
+                  <button
+                    type="button"
+                    onClick={handlePrevStep}
+                    className="w-1/3 py-3 border border-slate-200 dark:border-[#2d3133] text-gray-700 dark:text-white font-bold text-xs rounded-xl hover:bg-slate-100 dark:hover:bg-[#2d3133] transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRegister}
+                    disabled={loading}
+                    className="flex-1 py-3 bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 dark:bg-none dark:bg-[#fe9832] text-white dark:text-[#683700] hover:opacity-95 font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-500/20 dark:shadow-none flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                    ) : (
+                      <>
+                        <span>Complete Registration</span>
+                        <span className="material-symbols-outlined text-[16px]">check</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Footer Sign In Link */}
+            <div className="mt-6 pt-5 border-t border-slate-200 dark:border-[#2d3133] text-center text-xs text-gray-500 dark:text-[#828796]">
+              Already have an account?{' '}
+              <Link to="/login" className="text-indigo-600 dark:text-[#fe9832] font-bold hover:underline">
+                Sign In
+              </Link>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+export default RegisterPage;

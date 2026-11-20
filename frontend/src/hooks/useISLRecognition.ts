@@ -1,0 +1,774 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { defaultSaanketClassifier, ISL_VOCABULARY } from '../utils/islModel';
+import type { ISLClassifier, ISLLandmarks, ISLLandmark } from '../utils/islModel';
+
+// Dynamic loader for MediaPipe Hands script with CDN fallback
+async function loadMediaPipeHands(): Promise<any> {
+  if (typeof window === 'undefined') return null;
+  if ((window as any).Hands) return (window as any).Hands;
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src*="mediapipe/hands"]');
+    if (existing && (window as any).Hands) {
+      return resolve((window as any).Hands);
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      resolve((window as any).Hands);
+    };
+    script.onerror = () => {
+      const fallbackScript = document.createElement('script');
+      fallbackScript.src = 'https://unpkg.com/@mediapipe/hands@0.4.1675469240/hands.js';
+      fallbackScript.crossOrigin = 'anonymous';
+      fallbackScript.onload = () => resolve((window as any).Hands);
+      fallbackScript.onerror = () => reject(new Error('Failed to load MediaPipe Hands from CDNs'));
+      document.head.appendChild(fallbackScript);
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Singleton MediaPipe Hands instance cache to prevent repeated WASM/Data fetching and net::ERR_INSUFFICIENT_RESOURCES
+let sharedHandsPromise: Promise<any> | null = null;
+let sharedHandsInstance: any = null;
+
+async function getSharedMediaPipeHands(): Promise<any> {
+  if (sharedHandsInstance) return sharedHandsInstance;
+  if (sharedHandsPromise) return sharedHandsPromise;
+
+  sharedHandsPromise = (async () => {
+    const HandsClass = await loadMediaPipeHands();
+    if (!HandsClass) return null;
+
+    const instance = new HandsClass({
+      locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
+    });
+
+    instance.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 0,
+      minDetectionConfidence: 0.35,
+      minTrackingConfidence: 0.35
+    });
+
+    await instance.initialize();
+    sharedHandsInstance = instance;
+    return instance;
+  })();
+
+  return sharedHandsPromise;
+}
+
+export type GestureCaptureState =
+  | 'IDLE'
+  | 'SIGN_DETECTED'
+  | 'COLLECTING'
+  | 'VALIDATING'
+  | 'COMMITTED'
+  | 'WAIT_FOR_SIGN_END'
+  | 'DISPLAY RESULT'
+  | 'READY FOR NEXT GESTURE';
+
+export interface CommittedSignEvent {
+  text: string;
+  confidence: number;
+  sequenceId: number;
+  timestamp: number;
+}
+
+export interface ISLTelemetry {
+  cameraActive: boolean;
+  handsDetected: number;
+  bufferedFrames: number;
+  featureVectorDim: number;
+  slot0Features: number;
+  slot1Features: number;
+  minVal: number;
+  maxVal: number;
+  meanVal: number;
+  requestStatus: 'IDLE' | 'SENT' | 'RECEIVED' | 'REJECTED';
+  lastLatencyMs: number;
+  recognitionSource: 'BiLSTM' | 'Geometric Fallback' | 'None';
+  top1Label: string;
+  top1Confidence: number;
+  top2Label: string;
+  top2Confidence: number;
+  margin: number;
+}
+
+export function useISLRecognition(classifier: ISLClassifier = defaultSaanketClassifier) {
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentGesture, setCurrentGesture] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number>(0);
+  const [translatedText, setTranslatedText] = useState<string>('');
+  const [committedSign, setCommittedSign] = useState<CommittedSignEvent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isModelOnline, setIsModelOnline] = useState<boolean>(false);
+  const [activeEndpoint, setActiveEndpoint] = useState<string>('');
+  const [pingLatencyMs, setPingLatencyMs] = useState<number>(0);
+  const [unrecognizedNotice, setUnrecognizedNotice] = useState<string | null>(null);
+
+  const [frameCount, setFrameCount] = useState<number>(0);
+  const [handsDetectedCount, setHandsDetectedCount] = useState<number>(0);
+  const [gestureState, setGestureState] = useState<GestureCaptureState>('IDLE');
+  const [isCapturingManual, setIsCapturingManual] = useState<boolean>(false);
+  const [telemetry, setTelemetry] = useState<ISLTelemetry>({
+    cameraActive: false,
+    handsDetected: 0,
+    bufferedFrames: 0,
+    featureVectorDim: 126,
+    slot0Features: 0,
+    slot1Features: 0,
+    minVal: 0,
+    maxVal: 0,
+    meanVal: 0,
+    requestStatus: 'IDLE',
+    lastLatencyMs: 0,
+    recognitionSource: 'None',
+    top1Label: '',
+    top1Confidence: 0,
+    top2Label: '',
+    top2Confidence: 0,
+    margin: 0
+  });
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
+  const handsInstanceRef = useRef<any | null>(null);
+  const lastSendTimeRef = useRef<number>(0);
+  const lastValidTimeRef = useRef<number>(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const handsDetectedCountRef = useRef<number>(0);
+
+  // Diagnostic throttle & telemetry refs
+  const processedFramesCountRef = useRef<number>(0);
+  const lastLoopLogTimeRef = useRef<number>(0);
+  const lastMediaPipeLogTimeRef = useRef<number>(0);
+
+  // Lifecycle diagnostic
+  useEffect(() => {
+    console.log('[ISL Recognition] MOUNT');
+    return () => {
+      console.log('[ISL Recognition] UNMOUNT');
+    };
+  }, []);
+
+  // Deterministic State Machine & Fencing Refs
+  const machineStateRef = useRef<GestureCaptureState>('IDLE');
+  const gestureCycleIdRef = useRef<number>(0);
+  const currentRequestIdRef = useRef<number>(0);
+  const activeFramesAccumulatedRef = useRef<number>(0);
+  const absenceFramesCountRef = useRef<number>(0);
+  const recentPredictionsRef = useRef<string[]>([]);
+  const isRecognizingRef = useRef<boolean>(false);
+
+  // Centralized Reset Mechanism
+  const resetRecognition = useCallback((reason = 'UNSPECIFIED') => {
+    if (classifier && (classifier as any).clearBuffer) {
+      (classifier as any).clearBuffer();
+    }
+    machineStateRef.current = 'IDLE';
+    gestureCycleIdRef.current += 1;
+    currentRequestIdRef.current += 1;
+    activeFramesAccumulatedRef.current = 0;
+    absenceFramesCountRef.current = 0;
+    recentPredictionsRef.current = [];
+
+    setCurrentGesture(null);
+    setConfidence(0);
+    setTranslatedText('');
+    setCommittedSign(null);
+    setGestureState('IDLE');
+    setFrameCount(0);
+    setHandsDetectedCount(0);
+    setUnrecognizedNotice(null);
+
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
+    console.log(`[ISL Recognition] RESET reason=${reason}`);
+  }, [classifier]);
+
+  // Draw hand skeleton connections onto the canvas
+  const drawHandSkeleton = (ctx: CanvasRenderingContext2D, landmarks: ISLLandmark[], width: number, height: number, color = '#fe9832') => {
+    if (!landmarks || landmarks.length < 21) return;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.fillStyle = '#ffffff';
+
+    // Standard 21 MediaPipe hand connections
+    const connections = [
+      [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+      [0, 5], [5, 6], [6, 7], [7, 8], // Index
+      [0, 9], [9, 10], [10, 11], [11, 12], // Middle
+      [0, 13], [13, 14], [14, 15], [15, 16], // Ring
+      [0, 17], [17, 18], [18, 19], [19, 20], // Pinky
+      [5, 9], [9, 13], [13, 17] // Palm
+    ];
+
+    // Draw connection lines
+    ctx.beginPath();
+    connections.forEach(([start, end]) => {
+      const p1 = landmarks[start];
+      const p2 = landmarks[end];
+      if (p1 && p2) {
+        ctx.moveTo(p1.x * width, p1.y * height);
+        ctx.lineTo(p2.x * width, p2.y * height);
+      }
+    });
+    ctx.stroke();
+
+    // Draw landmark joint points
+    landmarks.forEach((lm) => {
+      ctx.beginPath();
+      ctx.arc(lm.x * width, lm.y * height, 4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.stroke();
+    });
+  };
+
+  // Stop recognition and clear canvas
+  const stopRecognition = useCallback((reason = 'STOP_RECOGNITION') => {
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+
+    handsInstanceRef.current = null;
+    isRecognizingRef.current = false;
+    resetRecognition(reason);
+    setIsRecognizing(false);
+    setIsPaused(false);
+  }, [resetRecognition]);
+
+  const pauseRecognition = useCallback(() => {
+    setIsPaused(true);
+  }, []);
+
+  const resumeRecognition = useCallback(() => {
+    setIsPaused(false);
+  }, []);
+
+  useEffect(() => {
+    classifier.initialize().then(() => {
+      setIsModelOnline(classifier.getIsOnline());
+      if ((classifier as any).getActiveEndpoint) {
+        setActiveEndpoint((classifier as any).getActiveEndpoint());
+      }
+      if ((classifier as any).getLastPingMs) {
+        setPingLatencyMs((classifier as any).getLastPingMs());
+      }
+    });
+  }, [classifier]);
+
+  const startRecognition = useCallback(async (targetVideo?: HTMLVideoElement | null) => {
+    let videoElement = targetVideo || videoElementRef.current;
+    if (!videoElement && typeof document !== 'undefined') {
+      videoElement = (document.querySelector('video[data-self-view="true"]') ||
+                     document.querySelector('div[data-self-view="true"] video') ||
+                     document.querySelector('video[data-isl-camera="true"]') ||
+                     document.querySelector('video:not([data-remote="true"])') ||
+                     document.querySelector('video')) as HTMLVideoElement;
+    }
+
+    console.log('[ISL Recognition] startRecognition requested. videoElement check:', {
+      exists: !!videoElement,
+      readyState: videoElement?.readyState,
+      videoWidth: videoElement?.videoWidth,
+      videoHeight: videoElement?.videoHeight,
+      paused: videoElement?.paused,
+      hasSrcObject: !!videoElement?.srcObject
+    });
+
+    if (!videoElement) {
+      setError('Video element reference is null.');
+      return;
+    }
+
+    if (isRecognizingRef.current && videoElementRef.current === videoElement && handsInstanceRef.current) {
+      return;
+    }
+
+    setError(null);
+    videoElementRef.current = videoElement;
+    lastValidTimeRef.current = performance.now();
+
+    try {
+      await classifier.initialize();
+      setIsModelOnline(classifier.getIsOnline());
+      if ((classifier as any).getActiveEndpoint) {
+        setActiveEndpoint((classifier as any).getActiveEndpoint());
+      }
+      if ((classifier as any).getLastPingMs) {
+        setPingLatencyMs((classifier as any).getLastPingMs());
+      }
+
+      if (videoElement.srcObject) {
+        streamRef.current = videoElement.srcObject as MediaStream;
+        if (videoElement.paused) {
+          await videoElement.play().catch(() => {});
+        }
+      }
+
+      const hands = await getSharedMediaPipeHands();
+
+      if (hands) {
+        hands.onResults(async (results: any) => {
+          if (isPaused) return;
+
+          const detectedCount = results.multiHandLandmarks?.length || 0;
+
+          if (handsDetectedCountRef.current !== detectedCount) {
+            handsDetectedCountRef.current = detectedCount;
+            setHandsDetectedCount(detectedCount);
+          }
+
+          const vid = videoElementRef.current;
+          let canvas = canvasRef.current;
+          if (!canvas || !document.body.contains(canvas)) {
+            canvas = (vid?.parentElement?.querySelector('canvas[data-gesture-canvas="true"]') || document.querySelector('canvas[data-gesture-canvas="true"]')) as HTMLCanvasElement;
+            canvasRef.current = canvas;
+          }
+          
+          let ctx: CanvasRenderingContext2D | null = null;
+          if (canvas && canvas.getContext) {
+            if (vid && vid.clientWidth > 0 && (canvas.width !== vid.clientWidth || canvas.height !== vid.clientHeight)) {
+              canvas.width = vid.clientWidth;
+              canvas.height = vid.clientHeight;
+            }
+            ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+          }
+
+          const landmarksPayload: ISLLandmarks = {
+            rightHand: [],
+            leftHand: []
+          };
+
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const numHands = Math.min(results.multiHandLandmarks.length, 2);
+            
+            // Primary hand (index 0) always maps to Slot 0 (features 0..62)
+            const hand0 = results.multiHandLandmarks[0];
+            const pts0: ISLLandmark[] = hand0.map((p: any) => ({ x: p.x, y: p.y, z: p.z }));
+            landmarksPayload.leftHand = pts0; // Slot 0
+
+            // Secondary hand (index 1) maps to Slot 1 (features 63..125) if present
+            if (numHands >= 2) {
+              const hand1 = results.multiHandLandmarks[1];
+              const pts1: ISLLandmark[] = hand1.map((p: any) => ({ x: p.x, y: p.y, z: p.z }));
+              landmarksPayload.rightHand = pts1; // Slot 1
+            }
+
+            if (ctx && canvas) {
+              if (landmarksPayload.leftHand && landmarksPayload.leftHand.length > 0) {
+                drawHandSkeleton(ctx, landmarksPayload.leftHand, (canvas as HTMLCanvasElement).width, (canvas as HTMLCanvasElement).height, '#fe9832');  // Hand 1 (Primary)
+              }
+              if (landmarksPayload.rightHand && landmarksPayload.rightHand.length > 0) {
+                drawHandSkeleton(ctx, landmarksPayload.rightHand, (canvas as HTMLCanvasElement).width, (canvas as HTMLCanvasElement).height, '#059669'); // Hand 2 (Secondary)
+              }
+            }
+          }
+
+          if ((classifier as any).addFrame) {
+            (classifier as any).addFrame(landmarksPayload);
+          }
+
+          const currentBufLen = (classifier as any)?.getLatestBuffer?.()?.length ?? 0;
+          setTelemetry((prev) => ({
+            ...prev,
+            cameraActive: true,
+            handsDetected: detectedCount,
+            bufferedFrames: currentBufLen,
+          }));
+
+          const now = performance.now();
+          if (now - lastMediaPipeLogTimeRef.current >= 2000) {
+            lastMediaPipeLogTimeRef.current = now;
+            const lmCount = (landmarksPayload.leftHand?.length || 0) + (landmarksPayload.rightHand?.length || 0);
+            console.log(`[ISL Recognition] MediaPipe results received handsDetected=${detectedCount} landmarks=${lmCount} buffer=${currentBufLen}/60 state=${machineStateRef.current}`);
+          }
+
+          if (isCapturingManualRef.current) {
+            frameCountRef.current += 1;
+            setFrameCount(frameCountRef.current);
+            return;
+          }
+
+          // Strict Recognition Lifecycle State Machine:
+          // IDLE -> SIGN_DETECTED -> COLLECTING -> VALIDATING -> COMMITTED -> WAIT_FOR_SIGN_END -> IDLE
+          const hasHandsInFrame = !!(landmarksPayload.leftHand?.length || landmarksPayload.rightHand?.length);
+          const currentState = machineStateRef.current;
+
+          // Helper to trigger neural inference on current gesture buffer
+          const triggerInference = () => {
+            if (machineStateRef.current === 'VALIDATING') return;
+            machineStateRef.current = 'VALIDATING';
+            setGestureState('VALIDATING');
+
+            const thisReqId = ++currentRequestIdRef.current;
+            const thisCycleId = gestureCycleIdRef.current;
+            const infStartTime = performance.now();
+
+            setTelemetry((prev) => ({ ...prev, requestStatus: 'SENT' }));
+
+            console.log(`[ISL Recognition] INFERENCE START inputShape=[1,60,126] cycle=${thisCycleId} req=${thisReqId}`);
+
+            if (classifier && (classifier as any).evaluateBuffer) {
+              (classifier as any).evaluateBuffer({ requestId: thisReqId, gestureCycleId: thisCycleId })
+                .then((inf: any) => {
+                  setIsModelOnline(!!inf?.isRealModel);
+
+                  if (thisCycleId !== gestureCycleIdRef.current) {
+                    console.log(`[Recognition] Discarded stale response for cycle=${thisCycleId}`);
+                    return;
+                  }
+
+                  const infLatency = Math.round(performance.now() - infStartTime);
+
+                  // 169 classes: uniform is 0.59%. Valid threshold >= 0.08 (14x chance)
+                  const isConfidenceValid = (inf?.confidence || 0) >= 0.08;
+                  const isMarginValid = (inf?.margin ?? 1.0) >= 0.01;
+                  const isGestureValid = !!inf?.gesture &&
+                    inf.gesture !== 'G_UNKNOWN' &&
+                    inf.gesture !== 'NO_HANDS' &&
+                    inf.gesture !== 'UNKNOWN' &&
+                    inf.gesture !== 'NO_ACTIVE_SIGN' &&
+                    inf.label !== 'NO_ACTIVE_SIGN';
+
+                  const isGatePassed = isGestureValid && isConfidenceValid && isMarginValid && inf.isRealModel;
+
+                  setTelemetry((prev) => ({
+                    ...prev,
+                    requestStatus: isGatePassed ? 'RECEIVED' : 'REJECTED',
+                    lastLatencyMs: infLatency,
+                    recognitionSource: inf?.source || (isGatePassed ? 'BiLSTM' : 'None'),
+                    slot0Features: inf?.vectorStats?.slot0Count ?? prev.slot0Features,
+                    slot1Features: inf?.vectorStats?.slot1Count ?? prev.slot1Features,
+                    minVal: inf?.vectorStats?.minVal ?? prev.minVal,
+                    maxVal: inf?.vectorStats?.maxVal ?? prev.maxVal,
+                    meanVal: inf?.vectorStats?.meanVal ?? prev.meanVal,
+                    top1Label: inf?.label || inf?.gesture || '',
+                    top1Confidence: typeof inf?.confidence === 'number' ? inf.confidence : 0,
+                    top2Label: inf?.top2Label || '',
+                    top2Confidence: typeof inf?.top2Confidence === 'number' ? inf.top2Confidence : 0,
+                    margin: typeof inf?.margin === 'number' ? inf.margin : 0
+                  }));
+
+                  console.log(`[ISL Recognition] INFERENCE RESULT top1=${inf?.label || inf?.gesture} conf=${(inf?.confidence || 0).toFixed(4)} margin=${(inf?.margin || 0).toFixed(4)} isRealModel=${inf?.isRealModel} source=${inf?.source} gate=${isGatePassed ? 'PASS' : 'REJECT'}`);
+
+                  if (isGatePassed) {
+                    lastValidTimeRef.current = performance.now();
+                    setUnrecognizedNotice(null);
+
+                    const label = inf.label || inf.gesture;
+                    recentPredictionsRef.current.push(label);
+                    if (recentPredictionsRef.current.length > 3) {
+                      recentPredictionsRef.current.shift();
+                    }
+
+                    // Temporal majority vote
+                    const counts: Record<string, number> = {};
+                    recentPredictionsRef.current.forEach((l) => { counts[l] = (counts[l] || 0) + 1; });
+                    const smoothedLabel = Object.keys(counts).reduce((a, b) => (counts[a] >= counts[b] ? a : b), label);
+                    const phrase = inf.phrase || ISL_VOCABULARY[smoothedLabel] || smoothedLabel;
+
+                    console.log(`[ISL Recognition] cycle=${thisCycleId} req=${thisReqId} gate=PASS top1=${smoothedLabel} conf=${(inf.confidence || 0).toFixed(2)} top2=${inf.top2Label || ''} margin=${(inf.margin || 0).toFixed(2)} source=${inf.source} committed=YES`);
+
+                    // Emit ONE committedSign event
+                    const detectedConfidence = typeof inf.confidence === 'number' ? inf.confidence : 0.0;
+                    setCommittedSign({
+                      text: phrase,
+                      confidence: detectedConfidence,
+                      sequenceId: thisCycleId,
+                      timestamp: Date.now()
+                    });
+
+                    setCurrentGesture(smoothedLabel);
+                    setConfidence(detectedConfidence);
+                    setTranslatedText(phrase);
+
+                    if (absenceFramesCountRef.current < 6) {
+                      machineStateRef.current = 'WAIT_FOR_SIGN_END';
+                      setGestureState('COMMITTED');
+                    } else {
+                      machineStateRef.current = 'IDLE';
+                      setGestureState('IDLE');
+                      activeFramesAccumulatedRef.current = 0;
+                    }
+                  } else {
+                    console.log(`[ISL Recognition] cycle=${thisCycleId} req=${thisReqId} rejected: conf=${(inf?.confidence || 0).toFixed(2)} margin=${(inf?.margin || 0).toFixed(2)} label=${inf?.label}`);
+                    // Non-deadlock rejection: do NOT latch into WAIT_FOR_SIGN_END on rejection.
+                    // Allow ongoing continuous motion to evaluate smoothly.
+                    if (hasHandsInFrame && activeFramesAccumulatedRef.current >= 15) {
+                      machineStateRef.current = 'COLLECTING';
+                      setGestureState('COLLECTING');
+                      activeFramesAccumulatedRef.current = Math.min(activeFramesAccumulatedRef.current, 30);
+                    } else {
+                      machineStateRef.current = 'IDLE';
+                      setGestureState('IDLE');
+                      activeFramesAccumulatedRef.current = 0;
+                    }
+                  }
+                })
+                .catch((err: any) => {
+                  console.error('[Sambhav ML] Inference error:', err);
+                  machineStateRef.current = 'IDLE';
+                  setGestureState('IDLE');
+                  activeFramesAccumulatedRef.current = 0;
+                });
+            }
+          };
+
+          if (!hasHandsInFrame) {
+            absenceFramesCountRef.current += 1;
+
+            // If the user just completed a sign gesture (accumulated >= 15 frames) and dropped their hands:
+            if (currentState === 'COLLECTING' && activeFramesAccumulatedRef.current >= 15) {
+              triggerInference();
+              return;
+            }
+
+            if (absenceFramesCountRef.current >= 6) {
+              if (currentState === 'WAIT_FOR_SIGN_END' || currentState === 'COMMITTED') {
+                machineStateRef.current = 'IDLE';
+                setGestureState('IDLE');
+                activeFramesAccumulatedRef.current = 0;
+              }
+            }
+
+            if (absenceFramesCountRef.current >= 10) {
+              if (currentState !== 'IDLE' && currentState !== 'VALIDATING') {
+                machineStateRef.current = 'IDLE';
+                setGestureState('IDLE');
+                activeFramesAccumulatedRef.current = 0;
+              }
+              if (now - lastValidTimeRef.current > 3500) {
+                setCurrentGesture(null);
+                setConfidence(0);
+                setTranslatedText('');
+              }
+            }
+            return;
+          }
+
+          // Hands are in frame: reset absence frame counter
+          absenceFramesCountRef.current = 0;
+
+          if (currentState === 'IDLE') {
+            gestureCycleIdRef.current += 1;
+            activeFramesAccumulatedRef.current = 1;
+            machineStateRef.current = 'COLLECTING';
+            setGestureState('SIGN_DETECTED');
+            return;
+          }
+
+          if (currentState === 'COLLECTING' || currentState === 'SIGN_DETECTED') {
+            activeFramesAccumulatedRef.current += 1;
+            setFrameCount(activeFramesAccumulatedRef.current);
+            setGestureState('COLLECTING');
+
+            // 2-second continuous gesture window (50-60 frames at 30 FPS)
+            if (activeFramesAccumulatedRef.current >= 50) {
+              triggerInference();
+            }
+            return;
+          }
+
+          if (currentState === 'VALIDATING') {
+            // While inference is in flight, continue buffering frames without re-triggering
+            return;
+          }
+
+          if (currentState === 'WAIT_FOR_SIGN_END') {
+            // Latch active: Prevent duplicate tokens for 600ms cooldown, then smoothly allow next sign
+            if (now - lastValidTimeRef.current > 600) {
+              gestureCycleIdRef.current += 1;
+              activeFramesAccumulatedRef.current = 1;
+              machineStateRef.current = 'COLLECTING';
+              setGestureState('COLLECTING');
+            }
+            return;
+          }
+        });
+
+        handsInstanceRef.current = hands;
+      }
+
+      isRecognizingRef.current = true;
+      setIsRecognizing(true);
+      setIsPaused(false);
+
+      // 5. Continuous frame processing loop at native 30 FPS
+      let isProcessingFrame = false;
+
+      const processLoop = async () => {
+        if (!videoElementRef.current) return;
+
+        const vid = videoElementRef.current;
+        const now = performance.now();
+
+        // Check for active video frame dimensions
+        const isVidReady = (vid.readyState >= 2 || (vid.videoWidth > 0 && vid.videoHeight > 0));
+
+        processedFramesCountRef.current++;
+        if (now - lastLoopLogTimeRef.current >= 2000) {
+          lastLoopLogTimeRef.current = now;
+          console.log(`[ISL Recognition] frame loop alive framesProcessed=${processedFramesCountRef.current} readyState=${vid.readyState} dim=${vid.videoWidth}x${vid.videoHeight}`);
+        }
+
+        if (!isPaused && handsInstanceRef.current && isVidReady && !isProcessingFrame && now - lastSendTimeRef.current >= 33) {
+          lastSendTimeRef.current = now;
+          isProcessingFrame = true;
+          try {
+            await handsInstanceRef.current.send({ image: vid });
+          } catch (sendErr) {
+            // Frame processing catch
+          } finally {
+            isProcessingFrame = false;
+          }
+        }
+
+        animFrameIdRef.current = requestAnimationFrame(processLoop);
+      };
+
+      if (animFrameIdRef.current) {
+        cancelAnimationFrame(animFrameIdRef.current);
+      }
+      animFrameIdRef.current = requestAnimationFrame(processLoop);
+
+    } catch (err: any) {
+      console.error('[Sambhav ML] Camera capture error:', err);
+      const friendlyErr = err?.name === 'NotAllowedError' || err?.message?.includes('Permission denied')
+        ? 'Camera permission denied. Please allow camera access in browser settings.'
+        : 'Failed to access camera. Please verify your camera device is available.';
+      setError(friendlyErr);
+      stopRecognition('CAMERA_ERROR');
+    }
+  }, [classifier, isPaused, stopRecognition]);
+
+  useEffect(() => {
+    return () => {
+      stopRecognition('HOOK_UNMOUNT');
+    };
+  }, [stopRecognition]);
+
+  const [captureCountdown, setCaptureCountdown] = useState<number | null>(null);
+  const countdownTimerRef = useRef<any>(null);
+  const isCapturingManualRef = useRef<boolean>(false);
+  const frameCountRef = useRef<number>(0);
+
+  const start5sCapture = useCallback(() => {
+    if (classifier && (classifier as any).clearBuffer) {
+      (classifier as any).clearBuffer();
+    }
+    frameCountRef.current = 0;
+    setFrameCount(0);
+    setCurrentGesture(null);
+    setConfidence(0);
+    setTranslatedText('');
+    setUnrecognizedNotice(null);
+
+    isCapturingManualRef.current = true;
+    setIsCapturingManual(true);
+    setGestureState('COLLECTING');
+    setCaptureCountdown(5);
+
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+
+    let secondsLeft = 5;
+    countdownTimerRef.current = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+        setCaptureCountdown(null);
+        isCapturingManualRef.current = false;
+        setIsCapturingManual(false);
+        setGestureState('VALIDATING');
+
+        const testReqId = ++currentRequestIdRef.current;
+        const testCycleId = ++gestureCycleIdRef.current;
+
+        if (classifier && (classifier as any).evaluateBuffer) {
+          (classifier as any).evaluateBuffer({ requestId: testReqId, gestureCycleId: testCycleId }).then((inf: any) => {
+            const isConfOk = (inf?.confidence || 0) >= 0.08;
+            const isMarginOk = (inf?.margin ?? 1.0) >= 0.01;
+            const isGestureOk = !!inf?.gesture && inf.gesture !== 'NO_ACTIVE_SIGN' && inf.gesture !== 'NO_HANDS' && inf.gesture !== 'UNKNOWN' && inf.label !== 'NO_ACTIVE_SIGN';
+
+            if (isGestureOk && isConfOk && isMarginOk) {
+              const label = inf.label || inf.gesture;
+              const phrase = inf.phrase || ISL_VOCABULARY[label] || label;
+              const detectedConf = typeof inf.confidence === 'number' ? inf.confidence : 0.0;
+              setCurrentGesture(label);
+              setConfidence(detectedConf);
+              setTranslatedText(phrase);
+              setCommittedSign({
+                text: phrase,
+                confidence: detectedConf,
+                sequenceId: testCycleId,
+                timestamp: Date.now()
+              });
+              setGestureState('DISPLAY RESULT');
+              setUnrecognizedNotice(null);
+              lastValidTimeRef.current = performance.now();
+            } else {
+              setUnrecognizedNotice('No sign recognized — please perform your sign clearly in camera view and test again.');
+              setGestureState('READY FOR NEXT GESTURE');
+            }
+          }).catch((err: any) => {
+            console.error('[Sambhav ML] Inference error on 5s capture:', err);
+            setUnrecognizedNotice('ML service is unreachable. Please verify Python ML service is running on port 8000.');
+            setGestureState('READY FOR NEXT GESTURE');
+          });
+        }
+      } else {
+        setCaptureCountdown(secondsLeft);
+      }
+    }, 1000);
+  }, [classifier]);
+
+  return {
+    isRecognizing,
+    isPaused,
+    currentGesture,
+    confidence,
+    translatedText,
+    committedSign,
+    error,
+    unrecognizedNotice,
+    frameCount,
+    onResultsCount: frameCount,
+    handsDetectedCount,
+    gestureState,
+    isModelOnline,
+    activeEndpoint,
+    pingLatencyMs,
+    isCapturingManual,
+    captureCountdown,
+    telemetry,
+    recognitionSource: telemetry.recognitionSource,
+    start5sCapture,
+    start3sCapture: start5sCapture,
+    start5sTestCapture: start5sCapture,
+    startRecognition,
+    pauseRecognition,
+    resumeRecognition,
+    stopRecognition,
+    resetRecognition,
+  };
+}
+
+
